@@ -128,6 +128,18 @@
     .btn-main { background: var(--green); flex-grow: 1; font-size: 26px; }
     .btn-main.stop { background: var(--red); }
     .btn-goal { background: var(--blue); }
+
+    /* Latency Text Link */
+    .latency-link {
+      margin-top: 15px;
+      font-size: 18px;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-decoration: underline;
+      display: inline-block;
+    }
+    
+    .latency-link:hover { color: #fff; }
     
     /* Goal Reached Controls Container */
     .goal-controls {
@@ -167,17 +179,26 @@
     }
 
     .modal h3 { margin-bottom: 15px; font-size: 30px; color: #fff; }
+    
+    .modal-subtitle {
+      color: var(--text-muted);
+      font-size: 18px;
+      margin-bottom: 20px;
+      line-height: 1.2;
+    }
+
     .modal button { width: 100%; margin-bottom: 10px; background: #222; border: 1px solid #444; }
     
-    .custom-goal-container {
+    .custom-input-group {
       display: flex;
       gap: 10px;
       margin-bottom: 10px;
       margin-top: 10px;
     }
     
-    .custom-goal-container input {
+    .custom-input-group input {
       flex-grow: 1;
+      width: 50%;
       background: #000;
       border: 1px solid #444;
       color: #fff;
@@ -187,12 +208,17 @@
       text-align: center;
       outline: none;
     }
+
+    /* Hide number input arrows */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     
-    .custom-goal-container button {
+    .custom-input-group button {
       width: auto;
       margin: 0;
       background: var(--green);
       border: none;
+      padding: 10px 15px;
     }
 
     .modal .btn-close { background: var(--red); margin-top: 15px; border: none; }
@@ -226,9 +252,11 @@
   <div class="eta-text" id="etaText"></div>
 
   <div class="controls">
-    <button class="btn-goal" onclick="openMenu()">Set Goal</button>
+    <button class="btn-goal" onclick="openMenu('goalOverlay', 'goalModal')">Set Goal</button>
     <button id="mainBtn" class="btn-main" onclick="toggleStart()">START</button>
   </div>
+  
+  <div class="latency-link" id="latencyBtnText" onclick="openMenu('latencyOverlay', 'latencyModal')">Sync Interval</div>
   
   <!-- Pop up controls when goal is reached -->
   <div class="goal-controls" id="goalControls">
@@ -238,19 +266,39 @@
 </div>
 
 <!-- GOAL MENU -->
-<div class="modal-overlay" id="menuOverlay">
-  <div class="modal" id="menuModal">
+<div class="modal-overlay" id="goalOverlay">
+  <div class="modal" id="goalModal">
     <h3>Set Daily Goal</h3>
     <button onclick="setGoal(30)">30 Minutes</button>
     <button onclick="setGoal(45)">45 Minutes</button>
     <button onclick="setGoal(60)">60 Minutes</button>
     
-    <div class="custom-goal-container">
-      <input type="number" id="customGoalInput" placeholder="Custom mins" min="1">
+    <div class="custom-input-group">
+      <input type="number" id="customGoalHours" placeholder="Hrs" min="0">
+      <input type="number" id="customGoalMins" placeholder="Mins" min="0">
       <button onclick="setCustomGoal()">Set</button>
     </div>
 
-    <button class="btn-close" onclick="closeMenu()">Cancel</button>
+    <button class="btn-close" onclick="closeMenu('goalOverlay', 'goalModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- LATENCY MENU -->
+<div class="modal-overlay" id="latencyOverlay">
+  <div class="modal" id="latencyModal">
+    <h3>Sync Interval</h3>
+    <div class="modal-subtitle">Lower intervals updates faster on other screens, but uses more database network bandwidth.</div>
+    
+    <button onclick="changeLatency(1000)">Low (1000ms)</button>
+    <button onclick="changeLatency(2500)">Medium (2500ms)</button>
+    <button onclick="changeLatency(5000)">High (5000ms)</button>
+    
+    <div class="custom-input-group">
+      <input type="number" id="customLatencyInput" placeholder="Custom ms" min="500">
+      <button onclick="setCustomLatency()">Set</button>
+    </div>
+
+    <button class="btn-close" onclick="closeMenu('latencyOverlay', 'latencyModal')">Cancel</button>
   </div>
 </div>
 
@@ -267,6 +315,8 @@ let state = {
 };
 
 let hasCelebrated = false;
+let syncLatency = 5000; // Default to High Latency
+let syncInterval = null;
 
 // --- CANVAS CONFETTI ---
 const canvas = document.getElementById("fx");
@@ -332,7 +382,6 @@ function celebrate() {
 // --- FIREBASE LOGIC ---
 async function loadData() {
   try {
-    // Adding "?_t=" perfectly bypasses browser cache so multiple devices stay synced
     let r = await fetch(firebaseURL + "?_t=" + Date.now());
     let d = await r.json();
     
@@ -342,7 +391,6 @@ async function loadData() {
       state.startTime = d.startTime || null;
       state.goal = d.goal || state.goal;
     } else {
-      // If data was wiped (by hitting Done), reset locally
       state.total = 0;
       state.running = false;
       state.startTime = null;
@@ -359,6 +407,11 @@ async function saveData() {
   } catch(e) {
     console.error("Firebase save failed.");
   }
+}
+
+function startPolling() {
+  if (syncInterval) clearInterval(syncInterval);
+  syncInterval = setInterval(loadData, syncLatency);
 }
 
 // --- TIMER LOGIC ---
@@ -392,7 +445,6 @@ function updateUI() {
   if (left > 0) {
     goalText.innerText = `${Math.ceil(left / 60000)} min left`;
     
-    // ETA Logic
     if (state.running) {
       let finishDate = new Date(Date.now() + left);
       let timeString = finishDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -436,21 +488,30 @@ async function toggleStart() {
     state.startTime = null;
   }
   updateUI();
-  await saveData(); // Uploads to database ONLY when clicked
+  await saveData(); 
 }
 
 async function setGoal(mins) {
   state.goal = mins * 60000;
-  closeMenu();
+  closeMenu('goalOverlay', 'goalModal');
   updateUI();
   await saveData(); 
 }
 
 async function setCustomGoal() {
-  let inputVal = document.getElementById("customGoalInput").value;
-  if (inputVal && !isNaN(inputVal) && inputVal > 0) {
-    state.goal = inputVal * 60000;
-    closeMenu();
+  let hrs = parseInt(document.getElementById("customGoalHours").value) || 0;
+  let mins = parseInt(document.getElementById("customGoalMins").value) || 0;
+  
+  let totalMins = (hrs * 60) + mins;
+
+  if (totalMins > 0) {
+    state.goal = totalMins * 60000;
+    
+    // Clear inputs
+    document.getElementById("customGoalHours").value = "";
+    document.getElementById("customGoalMins").value = "";
+    
+    closeMenu('goalOverlay', 'goalModal');
     updateUI();
     await saveData(); 
   }
@@ -470,15 +531,37 @@ async function finishWorkout() {
     goal: 3600000 
   };
   hasCelebrated = false;
-  await saveData(); // Clears database
+  await saveData(); 
   window.location.reload(); 
 }
 
-// --- MODAL MENU ---
-const overlay = document.getElementById("menuOverlay");
-const modal = document.getElementById("menuModal");
+// --- LATENCY CONTROLS ---
+function changeLatency(ms) {
+  syncLatency = ms;
+  
+  let label = "Custom";
+  if (ms === 1000) label = "Low";
+  if (ms === 2500) label = "Medium";
+  if (ms === 5000) label = "High";
 
-function openMenu() {
+  document.getElementById("latencyBtnText").innerText = `Latency`;
+  
+  startPolling(); // Restart the polling with new speed
+  closeMenu('latencyOverlay', 'latencyModal');
+}
+
+function setCustomLatency() {
+  let val = parseInt(document.getElementById("customLatencyInput").value);
+  if (val && val >= 500) { // Limit to 500ms minimum to prevent crashing
+    changeLatency(val);
+    document.getElementById("customLatencyInput").value = "";
+  }
+}
+
+// --- MODAL MENU LOGIC ---
+function openMenu(overlayId, modalId) {
+  const overlay = document.getElementById(overlayId);
+  const modal = document.getElementById(modalId);
   overlay.style.display = "flex";
   setTimeout(() => {
     overlay.style.opacity = "1";
@@ -486,7 +569,9 @@ function openMenu() {
   }, 10);
 }
 
-function closeMenu() {
+function closeMenu(overlayId, modalId) {
+  const overlay = document.getElementById(overlayId);
+  const modal = document.getElementById(modalId);
   overlay.style.opacity = "0";
   modal.style.transform = "translateY(20px)";
   setTimeout(() => {
@@ -498,11 +583,11 @@ function closeMenu() {
 async function init() {
   await loadData();
   
-  // Updates UI locally 30 times a second without data usage
+  // Update UI locally 30 times a second
   setInterval(updateUI, 33);
 
-  // Polls quietly every 5 seconds so multiple open tabs stay perfectly in sync
-  setInterval(loadData, 5000);
+  // Start checking the database based on latency settings
+  startPolling();
 }
 
 init();
