@@ -95,7 +95,12 @@
 
     .status-text {
       color: var(--text-muted);
-      font-size: 22px;
+      font-size: 24px;
+      margin-bottom: 2px;
+    }
+
+    .eta-text {
+      font-size: 20px;
       margin-bottom: 25px;
     }
 
@@ -217,7 +222,8 @@
     </div>
   </div>
 
-  <div class="status-text" id="goalText">Syncing...</div>
+  <div class="status-text" id="goalText">Connecting...</div>
+  <div class="eta-text" id="etaText"></div>
 
   <div class="controls">
     <button class="btn-goal" onclick="openMenu()">Set Goal</button>
@@ -326,13 +332,21 @@ function celebrate() {
 // --- FIREBASE LOGIC ---
 async function loadData() {
   try {
-    let r = await fetch(firebaseURL);
+    // Adding "?_t=" perfectly bypasses browser cache so multiple devices stay synced
+    let r = await fetch(firebaseURL + "?_t=" + Date.now());
     let d = await r.json();
+    
     if (d) {
       state.total = d.total || 0;
       state.running = d.running || false;
       state.startTime = d.startTime || null;
       state.goal = d.goal || state.goal;
+    } else {
+      // If data was wiped (by hitting Done), reset locally
+      state.total = 0;
+      state.running = false;
+      state.startTime = null;
+      state.goal = 3600000;
     }
   } catch(e) {
     console.error("Firebase load failed.");
@@ -369,21 +383,38 @@ function updateUI() {
   let percent = Math.min((liveTime / state.goal) * 100, 100);
   document.getElementById("bar").style.width = percent + "%";
 
-  // Goal Text & Bonus Buttons
+  // Goal Text & ETA
   let left = Math.max(state.goal - liveTime, 0);
+  const goalText = document.getElementById("goalText");
+  const etaText = document.getElementById("etaText");
   const goalControls = document.getElementById("goalControls");
 
   if (left > 0) {
-    document.getElementById("goalText").innerText = `${Math.ceil(left / 60000)} min left`;
+    goalText.innerText = `${Math.ceil(left / 60000)} min left`;
+    
+    // ETA Logic
+    if (state.running) {
+      let finishDate = new Date(Date.now() + left);
+      let timeString = finishDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      etaText.innerText = `Estimated finish: ${timeString}`;
+      etaText.style.color = "var(--green)";
+    } else if (state.total > 0) {
+      etaText.innerText = "Paused";
+      etaText.style.color = "var(--orange)";
+    } else {
+      etaText.innerText = "";
+    }
+
     goalControls.style.display = "none";
     hasCelebrated = false;
   } else {
-    document.getElementById("goalText").innerText = "Goal Reached!";
+    goalText.innerText = "Goal Reached!";
+    etaText.innerText = "";
     goalControls.style.display = "flex";
     if (!hasCelebrated) celebrate();
   }
 
-  // Start/Stop Button
+  // Start/Stop Button Styling
   const btn = document.getElementById("mainBtn");
   if (state.running) {
     btn.innerText = "STOP";
@@ -405,7 +436,7 @@ async function toggleStart() {
     state.startTime = null;
   }
   updateUI();
-  await saveData(); // Only uploads to database on click
+  await saveData(); // Uploads to database ONLY when clicked
 }
 
 async function setGoal(mins) {
@@ -426,24 +457,21 @@ async function setCustomGoal() {
 }
 
 async function addFive() {
-  // Adds 5 minutes to the goal (automatically hides button until reached again)
   state.goal += 5 * 60000; 
   updateUI();
   await saveData(); 
 }
 
 async function finishWorkout() {
-  // Reset all data
   state = {
     total: 0,
     running: false,
     startTime: null,
-    goal: 3600000 // back to 60 mins default
+    goal: 3600000 
   };
   hasCelebrated = false;
-  
   await saveData(); // Clears database
-  window.location.reload(); // Refreshes everything
+  window.location.reload(); 
 }
 
 // --- MODAL MENU ---
@@ -470,8 +498,11 @@ function closeMenu() {
 async function init() {
   await loadData();
   
-  // Updates UI incredibly smoothly 30x a second locally without using internet data
+  // Updates UI locally 30 times a second without data usage
   setInterval(updateUI, 33);
+
+  // Polls quietly every 5 seconds so multiple open tabs stay perfectly in sync
+  setInterval(loadData, 5000);
 }
 
 init();
