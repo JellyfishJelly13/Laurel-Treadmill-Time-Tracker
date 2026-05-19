@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Laurel's Treadmill Tracker</title>
+  <title>Laurel's Treadmill Tracker (Viewer)</title>
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="https://uploads.onecompiler.io/44jajt6dm/44ppupxpf/Clipboard%20May%2018,%202026%20at%2010.10%E2%80%AFPM.png">
@@ -17,6 +17,7 @@
       --card-bg: #111111;
       --card-border: #333333;
       --green: #16a34a;
+      --orange: #d97706;
       --text-main: #ffffff;
       --text-muted: #a3a3a3;
     }
@@ -60,6 +61,13 @@
       color: #fff;
     }
 
+    /* Standby Text when not in use */
+    .not-running-text {
+      font-size: 26px;
+      color: var(--text-muted);
+      padding: 30px 10px;
+    }
+
     /* Stopwatch */
     .stopwatch {
       font-size: clamp(55px, 12vw, 80px);
@@ -91,7 +99,12 @@
 
     .status-text {
       color: var(--text-muted);
-      font-size: 22px;
+      font-size: 24px;
+      margin-bottom: 2px;
+    }
+
+    .eta-text {
+      font-size: 20px;
       margin-bottom: 5px;
     }
 
@@ -112,15 +125,24 @@
 <div class="card">
   <h1>Laurel's Treadmill Tracker</h1>
 
-  <div class="stopwatch" id="time">00:00:00</div>
-
-  <div class="progress-wrapper">
-    <div class="progress-bg">
-      <div class="progress-bar" id="bar"></div>
-    </div>
+  <!-- Shown when Laurel is NOT running (Reset / Done) -->
+  <div id="notRunningView">
+    <div class="not-running-text">Laurel is not using the treadmill right now.</div>
   </div>
 
-  <div class="status-text" id="goalText">Connecting...</div>
+  <!-- Shown when Laurel IS running (or paused mid-workout) -->
+  <div id="runningView" style="display: none;">
+    <div class="stopwatch" id="time">00:00:00</div>
+
+    <div class="progress-wrapper">
+      <div class="progress-bg">
+        <div class="progress-bar" id="bar"></div>
+      </div>
+    </div>
+
+    <div class="status-text" id="goalText">Connecting...</div>
+    <div class="eta-text" id="etaText"></div>
+  </div>
 </div>
 
 <script>
@@ -201,13 +223,22 @@ function celebrate() {
 // --- FIREBASE LOGIC ---
 async function loadData() {
   try {
-    let r = await fetch(firebaseURL);
+    // The "?_t=" adds a random timestamp so the browser NEVER caches the data. 
+    // This perfectly fixes the syncing issue across multiple devices!
+    let r = await fetch(firebaseURL + "?_t=" + Date.now());
     let d = await r.json();
+    
     if (d) {
       state.total = d.total || 0;
       state.running = d.running || false;
       state.startTime = d.startTime || null;
-      state.goal = d.goal || state.goal;
+      state.goal = d.goal || 3600000;
+    } else {
+      // If data was cleared by hitting "Done", reset everything locally
+      state.total = 0;
+      state.running = false;
+      state.startTime = null;
+      state.goal = 3600000;
     }
   } catch (e) {
     console.error("Firebase connection error.");
@@ -230,6 +261,21 @@ function updateUI() {
     liveTime += Date.now() - state.startTime;
   }
 
+  const notRunningView = document.getElementById("notRunningView");
+  const runningView = document.getElementById("runningView");
+
+  // Logic to show "Not Running" screen
+  if (state.total === 0 && !state.running) {
+    notRunningView.style.display = "block";
+    runningView.style.display = "none";
+    hasCelebrated = false;
+    return; // Stop updating the rest of the UI
+  }
+
+  // Logic to show Active Run screen
+  notRunningView.style.display = "none";
+  runningView.style.display = "block";
+
   // Time
   document.getElementById("time").innerText = formatTime(liveTime);
 
@@ -237,12 +283,29 @@ function updateUI() {
   let percent = Math.min((liveTime / state.goal) * 100, 100);
   document.getElementById("bar").style.width = percent + "%";
 
-  // Goal Text
+  // Goal Text & Estimated Finish
   let left = Math.max(state.goal - liveTime, 0);
+  const goalText = document.getElementById("goalText");
+  const etaText = document.getElementById("etaText");
+
   if (left > 0) {
-    document.getElementById("goalText").innerText = `${Math.ceil(left / 60000)} min left`;
+    goalText.innerText = `${Math.ceil(left / 60000)} min left`;
+    
+    if (state.running) {
+      // Calculate estimated finish time
+      let finishDate = new Date(Date.now() + left);
+      let timeString = finishDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      
+      etaText.innerText = `Estimated finish: ${timeString}`;
+      etaText.style.color = "var(--green)";
+    } else {
+      etaText.innerText = "Paused";
+      etaText.style.color = "var(--orange)";
+    }
+
   } else {
-    document.getElementById("goalText").innerText = "Goal Reached!";
+    goalText.innerText = "Goal Reached!";
+    etaText.innerText = "";
     if (!hasCelebrated) celebrate();
   }
   
@@ -253,10 +316,10 @@ function updateUI() {
 async function init() {
   await loadData(); // Initial load
   
-  // Update the UI smoothly 30 times a second locally
+  // Update the UI incredibly smoothly 30 times a second locally
   setInterval(updateUI, 33);
   
-  // Quietly ping Firebase every 5 seconds to stay in sync with the controller
+  // Ping Firebase every 5 seconds to stay perfectly in sync with the Controller
   setInterval(loadData, 5000); 
 }
 
