@@ -28,7 +28,6 @@
       margin: 0;
       padding: 0;
       user-select: none;
-      /* Force Patrick Hand on EVERYTHING */
       font-family: 'Patrick Hand', cursive; 
     }
 
@@ -41,6 +40,50 @@
       min-height: 100vh;
       overflow: hidden;
       padding: 16px;
+    }
+
+    /* LOADING SCREEN */
+    .loading-screen {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 99999;
+      transition: opacity 0.35s ease;
+    }
+
+    .loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-spinner {
+      width: 70px;
+      height: 70px;
+      border: 6px solid #222;
+      border-top: 6px solid #22c55e;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    .loading-text {
+      font-size: 34px;
+      color: #fff;
+      text-align: center;
+    }
+
+    .loading-subtext {
+      margin-top: 8px;
+      font-size: 20px;
+      color: var(--text-muted);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
 
     /* Black Theme Card */
@@ -147,7 +190,11 @@
       transition: transform 0.3s;
     }
 
-    .modal h3 { margin-bottom: 15px; font-size: 30px; color: #fff; }
+    .modal h3 {
+      margin-bottom: 15px;
+      font-size: 30px;
+      color: #fff;
+    }
     
     .modal-subtitle {
       color: var(--text-muted);
@@ -167,7 +214,10 @@
       color: white;
       cursor: pointer;
     }
-    .modal button:active { transform: scale(0.95); }
+
+    .modal button:active {
+      transform: scale(0.95);
+    }
     
     .custom-input-group {
       display: flex;
@@ -189,9 +239,11 @@
       outline: none;
     }
 
-    /* Hide number input arrows */
     input[type=number]::-webkit-inner-spin-button, 
-    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
     
     .custom-input-group button {
       width: auto;
@@ -201,12 +253,19 @@
       padding: 10px 15px;
     }
 
-    .modal .btn-close { background: var(--red); margin-top: 15px; border: none; }
+    .modal .btn-close {
+      background: var(--red);
+      margin-top: 15px;
+      border: none;
+    }
 
     /* Canvas for Confetti */
     canvas {
       position: fixed;
-      top: 0; left: 0; width: 100vw; height: 100vh;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
       pointer-events: none;
       z-index: 9999;
     }
@@ -214,6 +273,13 @@
 </head>
 
 <body>
+
+<!-- LOADING SCREEN -->
+<div class="loading-screen" id="loadingScreen">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading...</div>
+  <div class="loading-subtext">Contacting server...</div>
+</div>
 
 <canvas id="fx"></canvas>
 
@@ -271,12 +337,23 @@ let state = {
   total: 0,
   running: false,
   startTime: null,
-  goal: 3600000 // 60 mins default
+  goal: 3600000
 };
 
 let hasCelebrated = false;
-let syncLatency = 5000; // Default to High Latency
+let syncLatency = 5000;
 let syncInterval = null;
+
+// --- LOADING SCREEN ---
+function hideLoadingScreen() {
+  const loading = document.getElementById("loadingScreen");
+
+  loading.classList.add("hidden");
+
+  setTimeout(() => {
+    loading.style.display = "none";
+  }, 350);
+}
 
 // --- CANVAS CONFETTI ---
 const canvas = document.getElementById("fx");
@@ -287,6 +364,7 @@ function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 }
+
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
@@ -304,12 +382,14 @@ class Particle {
     this.tiltAngle = 0;
     this.tiltAngleInc = (Math.random() * 0.07) + 0.05;
   }
+
   update() {
     this.tiltAngle += this.tiltAngleInc;
     this.y += this.vy;
     this.x += Math.sin(this.tiltAngle) * 2;
     this.tilt = Math.sin(this.tiltAngle) * 15;
   }
+
   draw() {
     ctx.beginPath();
     ctx.lineWidth = this.size;
@@ -322,6 +402,7 @@ class Particle {
 
 function celebrate() {
   if (hasCelebrated) return;
+
   hasCelebrated = true;
   let end = Date.now() + CELEBRATION_DURATION;
   
@@ -329,12 +410,16 @@ function celebrate() {
     if (Date.now() < end && particles.length < 150) {
       particles.push(new Particle(), new Particle());
     }
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
     particles.forEach((p, index) => {
       p.update();
       p.draw();
+
       if (p.y > canvas.height) particles.splice(index, 1);
     });
+
     if (particles.length > 0) requestAnimationFrame(frame);
   }());
 }
@@ -342,7 +427,6 @@ function celebrate() {
 // --- FIREBASE LOGIC ---
 async function loadData() {
   try {
-    // The "?_t=" completely bypasses cache to guarantee perfect syncing
     let r = await fetch(firebaseURL + "?_t=" + Date.now());
     let d = await r.json();
     
@@ -373,12 +457,14 @@ function formatTime(ms) {
   let h = Math.floor(s / 3600);
   let m = Math.floor((s % 3600) / 60);
   let sec = s % 60;
+
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
 // --- UI UPDATER ---
 function updateUI() {
   let liveTime = state.total;
+
   if (state.running && state.startTime) {
     liveTime += Date.now() - state.startTime;
   }
@@ -386,7 +472,6 @@ function updateUI() {
   const notRunningView = document.getElementById("notRunningView");
   const runningView = document.getElementById("runningView");
 
-  // Show "Not Running" screen
   if (state.total === 0 && !state.running) {
     notRunningView.style.display = "block";
     runningView.style.display = "none";
@@ -394,19 +479,16 @@ function updateUI() {
     return; 
   }
 
-  // Show Active Run screen
   notRunningView.style.display = "none";
   runningView.style.display = "block";
 
-  // Time
   document.getElementById("time").innerText = formatTime(liveTime);
 
-  // Progress Bar
   let percent = Math.min((liveTime / state.goal) * 100, 100);
   document.getElementById("bar").style.width = percent + "%";
 
-  // Goal Text & Estimated Finish
   let left = Math.max(state.goal - liveTime, 0);
+
   const goalText = document.getElementById("goalText");
   const etaText = document.getElementById("etaText");
 
@@ -415,7 +497,12 @@ function updateUI() {
     
     if (state.running) {
       let finishDate = new Date(Date.now() + left);
-      let timeString = finishDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+      let timeString = finishDate.toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+
       etaText.innerText = `Estimated finish: ${timeString}`;
       etaText.style.color = "var(--green)";
     } else {
@@ -426,6 +513,7 @@ function updateUI() {
   } else {
     goalText.innerText = "Goal Reached!";
     etaText.innerText = "";
+
     if (!hasCelebrated) celebrate();
   }
   
@@ -437,19 +525,22 @@ function changeLatency(ms) {
   syncLatency = ms;
   
   let label = "Custom";
+
   if (ms === 1000) label = "Low";
   if (ms === 2500) label = "Medium";
   if (ms === 5000) label = "High";
 
   document.getElementById("latencyBtnText").innerText = `Sync Latency: ${label} (${ms}ms)`;
   
-  startPolling(); // Restart the polling with new speed
+  startPolling();
+
   closeMenu('latencyOverlay', 'latencyModal');
 }
 
 function setCustomLatency() {
   let val = parseInt(document.getElementById("customLatencyInput").value);
-  if (val && val >= 500) { // Limit to 500ms minimum to prevent browser freezing
+
+  if (val && val >= 500) {
     changeLatency(val);
     document.getElementById("customLatencyInput").value = "";
   }
@@ -459,7 +550,9 @@ function setCustomLatency() {
 function openMenu(overlayId, modalId) {
   const overlay = document.getElementById(overlayId);
   const modal = document.getElementById(modalId);
+
   overlay.style.display = "flex";
+
   setTimeout(() => {
     overlay.style.opacity = "1";
     modal.style.transform = "translateY(0)";
@@ -469,8 +562,10 @@ function openMenu(overlayId, modalId) {
 function closeMenu(overlayId, modalId) {
   const overlay = document.getElementById(overlayId);
   const modal = document.getElementById(modalId);
+
   overlay.style.opacity = "0";
   modal.style.transform = "translateY(20px)";
+
   setTimeout(() => {
     overlay.style.display = "none";
   }, 300);
@@ -478,13 +573,17 @@ function closeMenu(overlayId, modalId) {
 
 // --- INITIALIZATION ---
 async function init() {
-  await loadData(); 
+  await loadData();
+
+  updateUI();
+
+  setTimeout(() => {
+    hideLoadingScreen();
+  }, 2000);
   
-  // Updates the UI incredibly smoothly 30 times a second locally
   setInterval(updateUI, 33);
-  
-  // Starts polling the database based on the selected latency
-  startPolling(); 
+
+  startPolling();
 }
 
 init();
